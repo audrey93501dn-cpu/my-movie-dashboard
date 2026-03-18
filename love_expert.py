@@ -1,8 +1,15 @@
 import streamlit as st
+from supabase import create_client, Client
 
 # 设置网页标题
 st.set_page_config(page_title='昊哥的AI专属情感诊所')
 st.title('🧑‍⚕️ 昊哥的AI专属情感诊所')
+
+# 初始化 Supabase 客户端
+supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+# 用户挂号输入
+user_name = st.text_input("挂号前，先报上你的大名（必填）：")
 
 # 读取 OpenAI Key
 api_key = st.secrets["api_key"]
@@ -31,27 +38,33 @@ if "messages" not in st.session_state:
         }
     ]
 
-# 展示过往聊天内容
-for msg in st.session_state.messages[1:]:  # 跳过 system
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+if user_name:
+    # 展示过往聊天内容
+    for msg in st.session_state.messages[1:]:  # 跳过 system
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-# 聊天输入
-if prompt := st.chat_input("老同学，有啥情感难题，尽管说！"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    with st.chat_message("assistant"):
-        stream = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=st.session_state.messages,
-            stream=True
-        )
-        full_reply = ""
-        msg_placeholder = st.empty()
-        for chunk in stream:
-            delta = getattr(chunk.choices[0].delta, "content", None)
-            if delta:
-                full_reply += delta
-                msg_placeholder.markdown(full_reply)
-        st.session_state.messages.append({"role": "assistant", "content": full_reply})
+    # 聊天输入
+    if prompt := st.chat_input("老同学，有啥情感难题，尽管说！"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            stream = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=st.session_state.messages,
+                stream=True
+            )
+            full_reply = ""
+            msg_placeholder = st.empty()
+            for chunk in stream:
+                delta = getattr(chunk.choices[0].delta, "content", None)
+                if delta:
+                    full_reply += delta
+                    msg_placeholder.markdown(full_reply)
+            st.session_state.messages.append({"role": "assistant", "content": full_reply})
+
+            # 聊天记录存入 Supabase
+            supabase.table("chat_logs").insert(
+                {"user_name": user_name, "question": prompt, "answer": full_reply}
+            ).execute()
